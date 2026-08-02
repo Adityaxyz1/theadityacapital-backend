@@ -6,6 +6,7 @@ pub struct Config {
     pub mongo_db_name: String,
     pub jwt_secret: String,
     pub port: u16,
+    pub notification_scan_interval_secs: u64,
 }
 
 impl Config {
@@ -18,6 +19,10 @@ impl Config {
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8080),
+            notification_scan_interval_secs: env::var("NOTIFICATION_SCAN_INTERVAL_SECS")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(3600),
         }
     }
 }

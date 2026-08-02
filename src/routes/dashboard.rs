@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     auth::AuthUser,
     error::{ApiError, ApiResult},
-    models::{Renewal, RenewalResponse},
+    models::{Policy, Renewal, RenewalResponse},
     state::AppState,
 };
 
@@ -24,6 +24,8 @@ pub struct MonthlyDashboard {
     pub month: String,
     pub counts_by_day: BTreeMap<String, u32>,
     pub renewals: Vec<RenewalResponse>,
+    pub total_premium_due: f64,
+    pub new_business_by_type: BTreeMap<String, u32>,
 }
 
 pub async fn monthly(
@@ -53,21 +55,41 @@ pub async fn monthly(
     let start = Utc.from_utc_datetime(&start_naive.and_hms_opt(0, 0, 0).unwrap());
     let end = Utc.from_utc_datetime(&end_naive.and_hms_opt(0, 0, 0).unwrap());
 
-    let collection = state.db.collection::<Renewal>("renewals");
-    let cursor = collection
+    let renewals_collection = state.db.collection::<Renewal>("renewals");
+    let cursor = renewals_collection
         .find(doc! { "due_date": { "$gte": start, "$lt": end } })
         .await?;
     let renewals: Vec<Renewal> = cursor.try_collect().await?;
 
     let mut counts_by_day: BTreeMap<String, u32> = BTreeMap::new();
+    let mut total_premium_due = 0.0;
     for renewal in &renewals {
         let key = renewal.due_date.format("%Y-%m-%d").to_string();
         *counts_by_day.entry(key).or_insert(0) += 1;
+        total_premium_due += renewal.premium_due;
+    }
+
+    // New business = policies with no previous_policy_id (not a renewal of an
+    // existing one) sold within the month, broken down by policy_type (PRD 4.3).
+    let policies_collection = state.db.collection::<Policy>("policies");
+    let new_business_cursor = policies_collection
+        .find(doc! {
+            "previous_policy_id": null,
+            "created_at": { "$gte": start, "$lt": end },
+        })
+        .await?;
+    let new_business_policies: Vec<Policy> = new_business_cursor.try_collect().await?;
+
+    let mut new_business_by_type: BTreeMap<String, u32> = BTreeMap::new();
+    for policy in &new_business_policies {
+        *new_business_by_type.entry(policy.policy_type.clone()).or_insert(0) += 1;
     }
 
     Ok(Json(MonthlyDashboard {
         month: query.month,
         counts_by_day,
         renewals: renewals.into_iter().map(Into::into).collect(),
+        total_premium_due,
+        new_business_by_type,
     }))
 }

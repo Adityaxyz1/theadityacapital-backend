@@ -87,6 +87,13 @@ pub struct UpdatePolicyInput {
     pub assigned_to: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AddFollowUpInput {
+    #[serde(rename = "type")]
+    pub kind: FollowUpType,
+    pub content: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct FollowUpResponse {
     pub user_id: String,

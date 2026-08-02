@@ -3,9 +3,14 @@ mod config;
 mod db;
 mod error;
 mod models;
+mod notify;
 mod routes;
 mod state;
+mod worker;
 
+use std::{collections::HashMap, sync::Arc};
+
+use tokio::sync::Mutex;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use config::Config;
@@ -21,8 +26,15 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env();
     let db = db::connect(&config).await?;
     db::ensure_indexes(&db).await?;
+    db::seed_default_notification_rule(&db).await?;
 
-    let state = AppState { db, config: config.clone() };
+    let state = AppState {
+        db,
+        config: config.clone(),
+        ws_hub: Arc::new(Mutex::new(HashMap::new())),
+    };
+
+    worker::spawn(state.clone());
 
     let app = routes::router()
         .layer(CorsLayer::permissive())

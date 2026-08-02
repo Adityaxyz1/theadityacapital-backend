@@ -57,6 +57,23 @@ pub struct RenewalResponse {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateRenewalStatusInput {
+    pub status: RenewalStatus,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListRenewalsQuery {
+    pub status: Option<RenewalStatus>,
+    pub insurer_name: Option<String>,
+    pub policy_type: Option<String>,
+    pub assigned_to: Option<String>,
+    // Due within this many days from now (e.g. 7/15/30/60). Overdue renewals
+    // (due_date in the past) are always included alongside the window.
+    pub due_within_days: Option<i64>,
+}
+
 impl From<Renewal> for RenewalResponse {
     fn from(r: Renewal) -> Self {
         RenewalResponse {

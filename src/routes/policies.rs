@@ -11,8 +11,8 @@ use crate::{
     auth::AuthUser,
     error::{ApiError, ApiResult},
     models::{
-        CreatePolicyInput, Policy, PolicyResponse, PolicyStatus, Renewal, RenewalStatus,
-        UpdatePolicyInput,
+        AddFollowUpInput, CreatePolicyInput, FollowUp, Policy, PolicyResponse, PolicyStatus,
+        Renewal, RenewalStatus, UpdatePolicyInput,
     },
     state::AppState,
 };
@@ -221,4 +221,48 @@ pub async fn delete_policy(
         .delete_many(doc! { "policy_id": oid })
         .await?;
     Ok(Json(serde_json::json!({ "deleted": true })))
+}
+
+pub async fn add_follow_up(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(input): Json<AddFollowUpInput>,
+) -> ApiResult<Json<PolicyResponse>> {
+    let oid = parse_oid(&id)?;
+    let now = Utc::now();
+
+    let follow_up = FollowUp {
+        user_id: auth.user_id,
+        kind: input.kind,
+        content: input.content,
+        created_at: now,
+    };
+    let follow_up_bson = bson::to_bson(&follow_up).map_err(|e| ApiError::Internal(e.into()))?;
+
+    let policies = state.db.collection::<Policy>("policies");
+    let policy = policies
+        .find_one_and_update(
+            doc! { "_id": oid },
+            doc! { "$push": { "follow_ups": follow_up_bson }, "$set": { "updated_at": now } },
+        )
+        .return_document(mongodb::options::ReturnDocument::After)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+
+    // Logging a follow-up on a still-pending renewal is, by definition, what
+    // moves it into the "contacted" stage of the pipeline (PRD 4.3).
+    state
+        .db
+        .collection::<Renewal>("renewals")
+        .update_one(
+            doc! { "policy_id": oid, "status": bson::to_bson(&RenewalStatus::Pending).unwrap() },
+            doc! { "$set": {
+                "status": bson::to_bson(&RenewalStatus::Contacted).unwrap(),
+                "last_contacted_at": now,
+            } },
+        )
+        .await?;
+
+    Ok(Json(policy.into()))
 }

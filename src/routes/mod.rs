@@ -1,7 +1,10 @@
 pub mod auth;
 pub mod customers;
 pub mod policies;
+pub mod renewals;
+pub mod notifications;
 pub mod dashboard;
+pub mod ws;
 
 use axum::{
     routing::{get, post},
@@ -29,5 +32,18 @@ pub fn router() -> Router<AppState> {
                 .put(policies::update_policy)
                 .delete(policies::delete_policy),
         )
+        .route("/policies/{id}/follow-ups", post(policies::add_follow_up))
+        .route("/renewals", get(renewals::list_renewals))
+        .route("/renewals/{id}/status", axum::routing::patch(renewals::update_renewal_status))
+        .route("/notifications", get(notifications::list_my_notifications))
+        .route(
+            "/notifications/{id}/read",
+            axum::routing::patch(notifications::mark_notification_read),
+        )
+        .route(
+            "/notification-rules",
+            get(notifications::list_notification_rules).post(notifications::upsert_notification_rule),
+        )
         .route("/dashboard/monthly", get(dashboard::monthly))
+        .route("/ws", get(ws::ws_handler))
 }

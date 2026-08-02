@@ -1,6 +1,6 @@
 use mongodb::{options::ClientOptions, Client, Database};
 
-use crate::config::Config;
+use crate::{config::Config, models::NotificationRule};
 
 pub async fn connect(config: &Config) -> mongodb::error::Result<Database> {
     let mut options = ClientOptions::parse(&config.mongo_uri).await?;
@@ -49,5 +49,30 @@ pub async fn ensure_indexes(db: &Database) -> mongodb::error::Result<()> {
         .create_index(IndexModel::builder().keys(doc! { "policy_id": 1 }).build())
         .await?;
 
+    db.collection::<bson::Document>("notifications")
+        .create_index(IndexModel::builder().keys(doc! { "user_id": 1, "status": 1 }).build())
+        .await?;
+
+    Ok(())
+}
+
+// Seeds a single global reminder rule (applies to every policy_type) the
+// first time the app runs against an empty notification_rules collection, so
+// the reminder worker has something to scan against out of the box. Staff can
+// override it (or add per-policy-type rules) via the notification_rules API.
+pub async fn seed_default_notification_rule(db: &Database) -> mongodb::error::Result<()> {
+    let collection = db.collection::<NotificationRule>("notification_rules");
+    if collection.estimated_document_count().await? > 0 {
+        return Ok(());
+    }
+
+    let default_rule = NotificationRule {
+        id: None,
+        policy_type: None,
+        offset_days: vec![30, 15, 7, 1, 0],
+        template: "{customer_name}'s {policy_type} policy with {insurer_name} is due for renewal in {days} day(s).".into(),
+    };
+    collection.insert_one(&default_rule).await?;
+    tracing::info!("seeded default notification rule");
     Ok(())
 }
