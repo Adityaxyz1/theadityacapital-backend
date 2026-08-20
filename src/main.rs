@@ -1,12 +1,17 @@
+mod activity;
 mod auth;
+mod categorize;
 mod config;
 mod db;
 mod error;
+mod listview;
 mod models;
 mod notify;
 mod routes;
 mod state;
+mod visibility;
 mod worker;
+mod workflow;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -27,14 +32,18 @@ async fn main() -> anyhow::Result<()> {
     let db = db::connect(&config).await?;
     db::ensure_indexes(&db).await?;
     db::seed_default_notification_rule(&db).await?;
+    db::seed_system_user(&db).await?;
+    let _ = db::clean_invalid_insurers(&db).await;
 
     let state = AppState {
         db,
         config: config.clone(),
         ws_hub: Arc::new(Mutex::new(HashMap::new())),
+        topic_hub: Arc::new(Mutex::new(HashMap::new())),
     };
 
     worker::spawn(state.clone());
+    workflow::spawn(state.clone());
 
     let app = routes::router()
         .layer(CorsLayer::permissive())

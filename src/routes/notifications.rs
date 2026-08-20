@@ -34,6 +34,15 @@ pub async fn list_my_notifications(
     Ok(Json(notifications.into_iter().map(Into::into).collect()))
 }
 
+pub async fn clear_my_notifications(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> ApiResult<Json<serde_json::Value>> {
+    let collection = state.db.collection::<Notification>("notifications");
+    collection.delete_many(doc! { "user_id": auth.user_id }).await?;
+    Ok(Json(serde_json::json!({ "cleared": true })))
+}
+
 pub async fn mark_notification_read(
     State(state): State<AppState>,
     auth: AuthUser,

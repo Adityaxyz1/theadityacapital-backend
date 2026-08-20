@@ -18,6 +18,7 @@ pub struct RegisterInput {
     pub phone: Option<String>,
     pub password: String,
     pub role: Option<Role>,
+    pub team_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,6 +46,13 @@ pub async fn register(
     };
 
     let password_hash = hash_password(&input.password).map_err(ApiError::Internal)?;
+    let team_id = input
+        .team_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(bson::oid::ObjectId::parse_str)
+        .transpose()
+        .map_err(|_| ApiError::BadRequest("invalid team_id".into()))?;
 
     let user = User {
         id: None,
@@ -53,6 +61,8 @@ pub async fn register(
         phone: input.phone,
         password_hash,
         role,
+        team_id,
+        public_key: None,
         created_at: Utc::now(),
     };
 

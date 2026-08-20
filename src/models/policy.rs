@@ -71,6 +71,9 @@ pub struct CreatePolicyInput {
     pub current_year_premium: f64,
     pub previous_policy_id: Option<String>,
     pub assigned_to: Option<String>,
+    // Set when this policy was created by the AI extraction pipeline, linking
+    // back to the uploaded document it came from (PRD 4.5).
+    pub source_document_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -21,6 +21,11 @@ pub struct Notification {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
     pub renewal_id: ObjectId,
+    // Added after the collection already had documents in it (backfilled
+    // separately) — lets a notification link straight to the customer it's
+    // about without a round trip through its renewal.
+    #[serde(default)]
+    pub customer_id: Option<ObjectId>,
     pub user_id: ObjectId,
     pub channel: NotificationChannel,
     pub status: NotificationStatus,
@@ -39,6 +44,7 @@ pub struct NotificationResponse {
     #[serde(rename = "_id")]
     pub id: String,
     pub renewal_id: String,
+    pub customer_id: Option<String>,
     pub channel: NotificationChannel,
     pub status: NotificationStatus,
     pub message: String,
@@ -53,6 +59,7 @@ impl From<Notification> for NotificationResponse {
         NotificationResponse {
             id: n.id.map(|i| i.to_hex()).unwrap_or_default(),
             renewal_id: n.renewal_id.to_hex(),
+            customer_id: n.customer_id.map(|i| i.to_hex()),
             channel: n.channel,
             status: n.status,
             message: n.message,

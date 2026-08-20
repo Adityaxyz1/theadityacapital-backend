@@ -1,5 +1,5 @@
 use bson::oid::ObjectId;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -19,6 +19,11 @@ pub struct Renewal {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
     pub policy_id: ObjectId,
+    // Added after the collection already had documents in it — `default` so
+    // pre-existing renewals (backfilled separately) still deserialize even if
+    // the backfill hasn't reached them yet, instead of a hard 500.
+    #[serde(default)]
+    pub policy_number: String,
     pub customer_id: ObjectId,
     pub customer_name: String,
     pub insurer_name: String,
@@ -43,6 +48,7 @@ pub struct RenewalResponse {
     #[serde(rename = "_id")]
     pub id: String,
     pub policy_id: String,
+    pub policy_number: String,
     pub customer_id: String,
     pub customer_name: String,
     pub insurer_name: String,
@@ -69,9 +75,14 @@ pub struct ListRenewalsQuery {
     pub insurer_name: Option<String>,
     pub policy_type: Option<String>,
     pub assigned_to: Option<String>,
+    pub customer_id: Option<String>,
     // Due within this many days from now (e.g. 7/15/30/60). Overdue renewals
     // (due_date in the past) are always included alongside the window.
     pub due_within_days: Option<i64>,
+    // Explicit due_date window (e.g. the Reports page date pickers). Takes
+    // precedence over due_within_days when both are present.
+    pub date_from: Option<NaiveDate>,
+    pub date_to: Option<NaiveDate>,
 }
 
 impl From<Renewal> for RenewalResponse {
@@ -79,6 +90,7 @@ impl From<Renewal> for RenewalResponse {
         RenewalResponse {
             id: r.id.map(|i| i.to_hex()).unwrap_or_default(),
             policy_id: r.policy_id.to_hex(),
+            policy_number: r.policy_number,
             customer_id: r.customer_id.to_hex(),
             customer_name: r.customer_name,
             insurer_name: r.insurer_name,

@@ -48,6 +48,6 @@ impl FromRequestParts<AppState> for Option<AuthUser> {
 pub fn require_admin(user: &AuthUser) -> Result<(), ApiError> {
     match user.role {
         Role::Admin => Ok(()),
-        Role::Agent => Err(ApiError::Forbidden),
+        Role::Manager | Role::Agent => Err(ApiError::Forbidden),
     }
 }

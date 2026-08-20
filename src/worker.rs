@@ -65,6 +65,7 @@ async fn scan_once(state: &AppState) -> anyhow::Result<()> {
             let mut notification = Notification {
                 id: None,
                 renewal_id: renewal.id.expect("renewal always has an id once persisted"),
+                customer_id: Some(renewal.customer_id),
                 user_id: renewal.assigned_to,
                 channel: NotificationChannel::InApp,
                 status: NotificationStatus::Queued,

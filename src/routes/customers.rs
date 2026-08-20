@@ -4,26 +4,39 @@ use axum::{
 };
 use bson::doc;
 use chrono::Utc;
-use futures_util::TryStreamExt;
 use serde::Deserialize;
 
 use crate::{
     auth::AuthUser,
     error::{ApiError, ApiResult},
+    listview::{paginate, parse_sort, PageParams, Paginated},
     models::{Customer, CustomerResponse, CreateCustomerInput, UpdateCustomerInput},
     state::AppState,
 };
+
+const SORTABLE_FIELDS: &[&str] = &["name", "created_at", "updated_at"];
 
 #[derive(Debug, Deserialize)]
 pub struct ListCustomersQuery {
     pub q: Option<String>,
 }
 
+// Customers are intentionally left unscoped by `visibility::visibility_filter`
+// (see visibility.rs) — they're a shared address book, not an owned record
+// like policies/renewals.
+//
+// Pagination/sort params are a *separate* `Query<PageParams>` extractor
+// rather than `#[serde(flatten)]`-ed into `ListCustomersQuery`: axum's Query
+// extractor (serde_urlencoded) has a known bug where flattening breaks
+// non-string field types ("invalid type: string \"1\", expected u64"), since
+// flatten requires a self-describing deserializer that urlencoded isn't.
+// Two independent Query extractors both just re-read the same query string.
 pub async fn list_customers(
     State(state): State<AppState>,
     _auth: AuthUser,
     Query(query): Query<ListCustomersQuery>,
-) -> ApiResult<Json<Vec<CustomerResponse>>> {
+    Query(page): Query<PageParams>,
+) -> ApiResult<Json<Paginated<CustomerResponse>>> {
     let collection = state.db.collection::<Customer>("customers");
 
     let filter = match query.q {
@@ -36,10 +49,9 @@ pub async fn list_customers(
         },
         _ => doc! {},
     };
+    let sort = parse_sort(&page.sort, SORTABLE_FIELDS, "name")?;
 
-    let cursor = collection.find(filter).await?;
-    let customers: Vec<Customer> = cursor.try_collect().await?;
-    Ok(Json(customers.into_iter().map(Into::into).collect()))
+    Ok(Json(paginate(&collection, filter, sort, &page).await?))
 }
 
 pub async fn create_customer(
@@ -57,6 +69,7 @@ pub async fn create_customer(
         email: input.email,
         address: input.address,
         notes: input.notes,
+        tags: input.tags,
         created_by: auth.user_id,
         created_at: now,
         updated_at: now,
@@ -65,6 +78,25 @@ pub async fn create_customer(
     let result = collection.insert_one(&customer).await?;
     let mut created = customer;
     created.id = result.inserted_id.as_object_id();
+
+    if let (Some(id), Ok(doc)) = (created.id, bson::to_document(&created)) {
+        crate::workflow::on_record_created(&state, crate::models::EntityType::Customer, id, &doc).await;
+    }
+
+    crate::activity::log(
+        &state,
+        crate::activity::NewActivity {
+            user_id: auth.user_id,
+            action: format!("added a new customer record for {}", created.name),
+            customer_id: created.id,
+            customer_name: Some(created.name.clone()),
+            policy_type: None,
+            icon_type: crate::models::ActivityIcon::Lead,
+            assigned_to: Some(auth.user_id),
+        },
+    )
+    .await;
+
     Ok(Json(created.into()))
 }
 
@@ -106,6 +138,9 @@ pub async fn update_customer(
     }
     if let Some(notes) = input.notes {
         set_doc.insert("notes", notes);
+    }
+    if let Some(tags) = input.tags {
+        set_doc.insert("tags", tags);
     }
 
     let customer = collection
